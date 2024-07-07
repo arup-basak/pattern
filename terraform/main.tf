@@ -26,7 +26,7 @@ resource "aws_internet_gateway" "main" {
 resource "aws_subnet" "public" {
   vpc_id                  = aws_vpc.main.id
   cidr_block              = "10.0.1.0/24"
-  availability_zone       = "ap-south-1a"
+  availability_zone       = "eu-west-3c"
   map_public_ip_on_launch = true
 
   tags = {
@@ -88,7 +88,7 @@ resource "aws_security_group" "allow_ssh_http" {
 
 # EC2 Instance
 resource "aws_instance" "app_server" {
-  ami                    = "ami-0ad21ae1d0696ad58" # Amazon Linux 2 AMI (HVM), SSD Volume Type
+  ami                    = "ami-09d83d8d719da9808" # Amazon Linux 2 AMI (HVM), SSD Volume Type
   instance_type          = "t2.micro"
   key_name               = "arup-key-pair"
   vpc_security_group_ids = [aws_security_group.allow_ssh_http.id]
