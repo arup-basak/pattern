@@ -60,28 +60,56 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
-      - name: Deploy to EC2
+      - name: Deploy to Ubuntu EC2
         env:
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
           EC2_IP: ${{ secrets.EC2_IP }}
+          GITHUB_USERNAME: ${{ secrets.GITHUB_USERNAME }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           echo "$SSH_PRIVATE_KEY" > private_key.pem
           chmod 600 private_key.pem
-          ssh -i private_key.pem -o StrictHostKeyChecking=no ec2-user@$EC2_IP '
-            # Update system
-            sudo yum update -y
+          ssh -i private_key.pem -o StrictHostKeyChecking=no ubuntu@$EC2_IP '
+            # Update and upgrade the system
+            sudo apt update && sudo apt upgrade -y
 
-            # Install nginx if not already installed
-            if ! command -v nginx &> /dev/null; then
-              sudo amazon-linux-extras install nginx1 -y
+            # Install required packages
+            sudo apt install -y apt-transport-https ca-certificates curl software-properties-common
+
+            # Install Docker
+            if ! command -v docker &> /dev/null; then
+              curl -fsSL https://get.docker.com -o get-docker.sh
+              sudo sh get-docker.sh
+              sudo usermod -aG docker ubuntu
+              sudo systemctl enable docker
             fi
 
-            # Clone or pull latest code
+            # Install Docker Compose
+            if ! command -v docker-compose &> /dev/null; then
+              sudo curl -L "https://github.com/docker/compose/releases/download/1.29.2/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+              sudo chmod +x /usr/local/bin/docker-compose
+            fi
+
+            # Install Nginx
+            sudo apt install -y nginx
+            sudo systemctl enable nginx
+
+            # Install Make
+            sudo apt install -y make
+
+            # Install ngrok
+            if ! command -v ngrok &> /dev/null; then
+              curl -s https://ngrok-agent.s3.amazonaws.com/ngrok.asc | sudo tee /etc/apt/trusted.gpg.d/ngrok.asc >/dev/null
+              echo "deb https://ngrok-agent.s3.amazonaws.com buster main" | sudo tee /etc/apt/sources.list.d/ngrok.list
+              sudo apt update && sudo apt install ngrok
+            fi
+
+            # Clone or update the repository
             if [ -d "pattern" ]; then
               cd pattern
               git pull
             else
-              git clone https://github.com/plaid/pattern.git
+              git clone https://$GITHUB_USERNAME:$GITHUB_TOKEN@github.com/plaid/pattern.git
               cd pattern
             fi
 
@@ -95,13 +123,14 @@ jobs:
             echo "PLAID_REDIRECT_URI=http://localhost:3001/oauth-link" >> .env
 
             # Update ngrok.yml
+            mkdir -p ngrok
             echo "authtoken: ${{ secrets.NGROK_AUTH_TOKEN }}" > ngrok/ngrok.yml
 
             # Start the application
             make start
 
-            # Configure nginx
-            sudo tee /etc/nginx/conf.d/pattern.conf > /dev/null <<EOT
+            # Configure Nginx
+            sudo tee /etc/nginx/sites-available/pattern > /dev/null <<EOT
             server {
               listen 80;
               server_name localhost;
@@ -117,13 +146,16 @@ jobs:
             }
             EOT
 
-            # Test nginx configuration
+            # Enable the Nginx configuration
+            sudo ln -sf /etc/nginx/sites-available/pattern /etc/nginx/sites-enabled/
+            sudo rm -f /etc/nginx/sites-enabled/default
+
+            # Test Nginx configuration
             sudo nginx -t
 
-            # Restart nginx
+            # Restart Nginx
             sudo systemctl restart nginx
 
-            # Ensure nginx starts on boot
-            sudo systemctl enable nginx
+            echo "Deployment completed successfully!"
           '
           rm -f private_key.pem
