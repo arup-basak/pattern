@@ -60,10 +60,70 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
-      - name: Deploy to production
-        run: |
-          # Add your deployment commands here
-          # For example: ssh into your EC2 instance and update the application
-          # ssh user@your-ec2-instance 'cd /path/to/app && git pull && docker-compose up -d'
+      - name: Deploy to EC2
         env:
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          EC2_IP: ${{ secrets.EC2_IP }}
+        run: |
+          echo "$SSH_PRIVATE_KEY" > private_key.pem
+          chmod 600 private_key.pem
+          ssh -i private_key.pem -o StrictHostKeyChecking=no ec2-user@$EC2_IP '
+            # Update system
+            sudo yum update -y
+
+            # Install nginx if not already installed
+            if ! command -v nginx &> /dev/null; then
+              sudo amazon-linux-extras install nginx1 -y
+            fi
+
+            # Clone or pull latest code
+            if [ -d "pattern" ]; then
+              cd pattern
+              git pull
+            else
+              git clone https://github.com/plaid/pattern.git
+              cd pattern
+            fi
+
+            # Create .env file
+            cp .env.template .env
+            echo "PLAID_CLIENT_ID=${{ secrets.PLAID_CLIENT_ID }}" >> .env
+            echo "PLAID_SECRET=${{ secrets.PLAID_SECRET }}" >> .env
+            echo "PLAID_ENV=sandbox" >> .env
+            echo "PLAID_PRODUCTS=transactions" >> .env
+            echo "PLAID_COUNTRY_CODES=US,CA" >> .env
+            echo "PLAID_REDIRECT_URI=http://localhost:3001/oauth-link" >> .env
+
+            # Update ngrok.yml
+            echo "authtoken: ${{ secrets.NGROK_AUTH_TOKEN }}" > ngrok/ngrok.yml
+
+            # Start the application
+            make start
+
+            # Configure nginx
+            sudo tee /etc/nginx/conf.d/pattern.conf > /dev/null <<EOT
+            server {
+              listen 80;
+              server_name localhost;
+
+              location / {
+                proxy_pass http://localhost:3001;
+                proxy_http_version 1.1;
+                proxy_set_header Upgrade \$http_upgrade;
+                proxy_set_header Connection "upgrade";
+                proxy_set_header Host \$host;
+                proxy_cache_bypass \$http_upgrade;
+              }
+            }
+            EOT
+
+            # Test nginx configuration
+            sudo nginx -t
+
+            # Restart nginx
+            sudo systemctl restart nginx
+
+            # Ensure nginx starts on boot
+            sudo systemctl enable nginx
+          '
+          rm -f private_key.pem
