@@ -1,0 +1,94 @@
+name: CI/CD Pipeline for Terraform Branch
+
+on:
+  push:
+    branches: [terraform]
+  pull_request:
+    branches: [terraform]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v2
+        with:
+          node-version: "14"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build application
+        run: npm run build
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v2
+        with:
+          name: dist
+          path: dist
+
+  deploy:
+    needs: build-and-test
+    if: github.ref == 'refs/heads/terraform' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Download build artifact
+        uses: actions/download-artifact@v2
+        with:
+          name: dist
+          path: dist
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v1
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Terraform Plan
+        run: terraform plan -out=tfplan
+
+      - name: Terraform Apply
+        run: terraform apply -auto-approve tfplan
+
+      - name: Get EC2 Public IP
+        id: get_ip
+        run: echo "::set-output name=ec2_ip::$(terraform output -raw ec2_public_ip)"
+
+      - name: Deploy to EC2
+        env:
+          PRIVATE_KEY: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
+          HOST: ${{ steps.get_ip.outputs.ec2_ip }}
+        run: |
+          echo "$PRIVATE_KEY" > private_key && chmod 600 private_key
+          scp -i private_key -o StrictHostKeyChecking=no -r dist/* ec2-user@${HOST}:/home/ec2-user/app
+          ssh -i private_key -o StrictHostKeyChecking=no ec2-user@${HOST} '
+            cd /home/ec2-user/app
+            docker-compose down
+            docker-compose up -d --build
+          '
+
+      - name: Verify Deployment
+        env:
+          HOST: ${{ steps.get_ip.outputs.ec2_ip }}
+        run: |
+          response=$(curl -s -o /dev/null -w "%{http_code}" http://${HOST})
+          if [ $response = "200" ]; then
+            echo "Application deployed successfully!"
+          else
+            echo "Deployment verification failed. HTTP status code: $response"
+            exit 1
+          fi
