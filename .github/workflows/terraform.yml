@@ -72,13 +72,6 @@ jobs:
           PLAID_SECRET: ${{ secrets.PLAID_SECRET }}
           NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
         run: |
-          echo "$SSH_PRIVATE_KEY" > private_key.pem
-          chmod 600 private_key.pem
-          ssh -i private_key.pem -o StrictHostKeyChecking=no ubuntu@$EC2_IP '
-            # Your deployment commands here
-            # (The rest of your deployment script remains the same)
-          '
-          rm -f private_key.pem
               # Update and upgrade the system
               sudo apt update && sudo apt upgrade -y
 
@@ -166,5 +159,3 @@ jobs:
               sudo systemctl restart nginx
 
               echo "Deployment completed successfully!"
-            '
-            rm -f private_key.pem
