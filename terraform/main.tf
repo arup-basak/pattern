@@ -1,5 +1,5 @@
 provider "aws" {
-  region = "eu-west-3"
+  region = "us-west-2"
 }
 
 # VPC resource
@@ -26,7 +26,7 @@ resource "aws_internet_gateway" "main" {
 resource "aws_subnet" "public" {
   vpc_id                  = aws_vpc.main.id
   cidr_block              = "10.0.1.0/24"
-  availability_zone       = "eu-west-3c"
+  availability_zone       = "us-west-2d"
   map_public_ip_on_launch = true
 
   tags = {
