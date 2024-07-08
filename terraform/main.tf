@@ -88,7 +88,7 @@ resource "aws_security_group" "allow_ssh_http" {
 
 # EC2 Instance
 resource "aws_instance" "app_server" {
-  ami                    = "ami-09d83d8d719da9808" # Amazon Linux 2 AMI (HVM), SSD Volume Type
+  ami                    = "ami-0aff18ec83b712f05" # Amazon Linux 2 AMI (HVM), SSD Volume Type
   instance_type          = "t2.micro"
   key_name               = "arup-key-pair"
   vpc_security_group_ids = [aws_security_group.allow_ssh_http.id]
